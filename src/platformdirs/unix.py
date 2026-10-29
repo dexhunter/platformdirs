@@ -439,16 +439,23 @@ def _runtime_dir_problem(path: str, *, missing_ok: bool, check_mode: bool = True
 def _runtime_dir_parent_problem(path: str) -> str | None:
     if sys.platform == "win32":  # every directory reports as writable by everyone there
         return None
+    parsed = Path(path)
+    anchor = parsed.anchor
+    prefix = anchor
     in_shared_dir = False
-    for parent in reversed(Path(path).parents):
+    for part in parsed.parts[bool(anchor) :]:
+        parent = prefix.rstrip("/") or anchor or "."
         try:
             if in_shared_dir and (owner := os.lstat(parent).st_uid) not in {0, geteuid()}:
                 return f"{path} is below {parent}, owned by uid {owner}"
-            mode = parent.stat().st_mode  # a symlink that got past the owner check is judged by its target
+            # A symlink that got past the owner check is judged by its target.
+            # Use the string directly to avoid rebuilding a Path for each parent.
+            mode = os.stat(parent).st_mode  # ruff: ignore[os-stat]
         except OSError:
             return None  # the missing rest gets created, or _runtime_dir_problem reports the path itself
         if (in_shared_dir := bool(mode & stat.S_IWOTH)) and not mode & stat.S_ISVTX:
             return f"{path} is below {parent}, writable by every user"
+        prefix = f"{prefix}{part}/"
     return None
 
 
